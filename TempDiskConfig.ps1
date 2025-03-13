@@ -1,5 +1,4 @@
 # Define paths
-$BlobURL = "https://github.com/EICloudArchitect/EI_AVD_EUS1/blob/2847ee9e6d7fedf6125f71cb1d88a6a10887f81d/TempDiskConfig.ps1"
 $LocalScriptPath = "C:\Scripts\Setup-TempDisk.ps1"
 
 # Ensure Scripts folder exists
@@ -7,10 +6,6 @@ if (!(Test-Path "C:\Scripts")) {
     New-Item -Path "C:\Scripts" -ItemType Directory -Force
 }
 
-# Always download the latest version of the script from Blob Storage
-Write-Output "Downloading the latest version of Setup-TempDisk.ps1 from GIT-hub Blob repository..."
-Invoke-WebRequest -Uri $BlobURL -OutFile $LocalScriptPath -UseBasicParsing
-Write-Output "Download complete."
 
 # Get system uptime in minutes
 $Uptime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
