@@ -1,67 +1,108 @@
 # Define paths
-$LocalScriptPath = "C:\Scripts\Setup-TempDisk.ps1"
 $MarkerFile = "D:\PagefileConfigured.txt"
+$LogFile = "C:\Temp\Setup-TempDisk.log"
 
-# Ensure Scripts folder exists
-if (!(Test-Path "C:\Scripts")) {
-    New-Item -Path "C:\Scripts" -ItemType Directory -Force
+# Function for logging
+function Write-Log {
+    param ([string]$Message)
+
+    # Ensure C:\Temp exists
+    if (!(Test-Path "C:\Temp")) {
+        New-Item -Path "C:\Temp" -ItemType Directory -Force | Out-Null
+    }
+
+    # Write log entry
+    $TimeStamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "$TimeStamp - $Message" | Out-File -Append -FilePath $LogFile
+    Write-Output $Message
 }
 
-# If marker file exists, the script has already run after last deallocation → EXIT
+Write-Log "========================= Script Started ========================="
+
+# **Check for Marker File - If Exists, Exit**
 if (Test-Path $MarkerFile) {
-    Write-Output "Pagefile was already configured after last deallocation. Skipping execution."
-    exit 0
+    Write-Log "Marker file already exists. Pagefile is set. Skipping script execution. No reboot needed."
+    exit 0  # **EXITS SCRIPT IMMEDIATELY!**
 }
 
-Write-Output "VM has been powered on after deallocation. Setting up temp disk and pagefile..."
+Write-Log "No marker file found. Running configuration."
 
 # **Ensure Temp Disk (D:) is available before proceeding**
 $TempDisk = Get-Disk | Where-Object { $_.PartitionStyle -eq 'RAW' -or $_.OperationalStatus -eq 'Offline' }
 if ($TempDisk) {
-    $TempDisk | Initialize-Disk -PartitionStyle MBR -PassThru | New-Partition -AssignDriveLetter -UseMaximumSize | Format-Volume -FileSystem NTFS -Confirm:$false
-    Write-Output "Temporary disk initialized and formatted."
+    try {
+        $TempDisk | Initialize-Disk -PartitionStyle MBR -PassThru | New-Partition -AssignDriveLetter -UseMaximumSize | Format-Volume -FileSystem NTFS -Confirm:$false
+        Write-Log "Temporary disk initialized and formatted."
+    } catch {
+        Write-Log "ERROR: Failed to initialize disk: $_"
+    }
 } else {
-    Write-Output "No uninitialized temporary disk found."
+    Write-Log "No uninitialized temporary disk found or already online."
 }
 
 # **Ensure Windows is NOT auto-managing the Pagefile**
-Set-CimInstance -Query "SELECT * FROM Win32_ComputerSystem" -Property @{AutomaticManagedPagefile=$false}
+try {
+    Set-CimInstance -Query "SELECT * FROM Win32_ComputerSystem" -Property @{AutomaticManagedPagefile=$false}
+    Write-Log "Disabled automatic pagefile management."
+} catch {
+    Write-Log "ERROR: Could not disable auto-managed pagefile: $_"
+}
 
 # **Remove any existing Page File on C:**
 $ExistingCPageFile = Get-CimInstance -ClassName Win32_PageFileSetting | Where-Object { $_.Name -eq "C:\pagefile.sys" }
 if ($ExistingCPageFile) {
-    Write-Output "Removing existing pagefile at C:\pagefile.sys..."
-    Remove-CimInstance -InputObject $ExistingCPageFile
+    try {
+        Remove-CimInstance -InputObject $ExistingCPageFile
+        Write-Log "Removed existing pagefile at C:\pagefile.sys."
+    } catch {
+        Write-Log "ERROR: Failed to remove C:\ pagefile: $_"
+    }
 }
 
 # **Remove any existing Page File on D:**
 $ExistingDPageFile = Get-CimInstance -ClassName Win32_PageFileSetting | Where-Object { $_.Name -eq "D:\pagefile.sys" }
 if ($ExistingDPageFile) {
-    Write-Output "Removing previous pagefile at D:\pagefile.sys..."
-    Remove-CimInstance -InputObject $ExistingDPageFile
+    try {
+        Remove-CimInstance -InputObject $ExistingDPageFile
+        Write-Log "Removed previous pagefile at D:\pagefile.sys."
+    } catch {
+        Write-Log "ERROR: Failed to remove D:\ pagefile: $_"
+    }
 }
 
-# **Explicitly Create the Pagefile on D:**
-Write-Output "Creating new pagefile on D:\pagefile.sys..."
-New-CimInstance -ClassName Win32_PageFileSetting -Property @{
-    Name = "D:\pagefile.sys"
-    InitialSize = 65536
-    MaximumSize = 65536
-} -Namespace "root\cimv2"
+# **Create a New Pagefile on D:**
+try {
+    New-CimInstance -ClassName Win32_PageFileSetting -Property @{
+        Name = "D:\pagefile.sys"
+        InitialSize = [UInt32]65536
+        MaximumSize = [UInt32]65536
+    } -Namespace "root\cimv2"
+    Write-Log "Successfully created pagefile on D:\pagefile.sys."
+} catch {
+    Write-Log "ERROR: Failed to create pagefile on D:\ $_"
+}
 
 # **Ensure Pagefile.sys File is Created**
-Start-Sleep -Seconds 5
 if (Test-Path "D:\pagefile.sys") {
-    Write-Output "Pagefile successfully created on D:\pagefile.sys"
+    Write-Log "Pagefile successfully created on D:\pagefile.sys."
 } else {
-    Write-Output "ERROR: Pagefile was NOT created on D:\!"
-    exit 1
+    Write-Log "ERROR: Pagefile was NOT created!"
 }
 
-# **Create marker file on TEMP disk (D:) to prevent re-running until next deallocation**
-New-Item -Path $MarkerFile -ItemType File -Force | Out-Null
-Write-Output "Marker file created at $MarkerFile to prevent re-running until next deallocation."
+# **Create the Marker File so the script doesn't run again on reboot**
+try {
+    New-Item -Path $MarkerFile -ItemType File -Force | Out-Null
+    Write-Log "Marker file created at $MarkerFile."
+} catch {
+    Write-Log "ERROR: Failed to create marker file: $_"
+}
 
-# **Force a Restart to Apply Pagefile**
-Write-Output "Forcing system reboot to apply pagefile settings..."
-shutdown.exe /r /t 5 /f
+# **Final Check - ONLY Reboot if Marker File Was Just Created**
+if (!(Test-Path $MarkerFile)) {
+    Write-Log "ERROR: Marker file creation failed. Skipping reboot to avoid loop."
+} else {
+    Write-Log "Forcing system reboot to apply pagefile settings..."
+    Restart-Computer -Force
+}
+
+Write-Log "========================= Script Completed ========================="
