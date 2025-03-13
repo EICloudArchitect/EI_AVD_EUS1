@@ -1,21 +1,15 @@
 # Define paths
 $LocalScriptPath = "C:\Scripts\Setup-TempDisk.ps1"
+$MarkerFile = "D:\PagefileConfigured.txt"   # Store marker file on TEMP disk (D:)
 
 # Ensure Scripts folder exists
 if (!(Test-Path "C:\Scripts")) {
     New-Item -Path "C:\Scripts" -ItemType Directory -Force
 }
 
-
-# Get system uptime in minutes
-$Uptime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
-$MinutesUp = (New-TimeSpan -Start $Uptime -End (Get-Date)).TotalMinutes
-
-Write-Output "System Uptime: $MinutesUp minutes"
-
-# If system uptime is greater than 10 minutes, skip everything
-if ($MinutesUp -gt 5) {
-    Write-Output "VM was restarted recently, skipping pagefile setup."
+# If marker file exists, the script has already run after last deallocation → EXIT
+if (Test-Path $MarkerFile) {
+    Write-Output "Pagefile was already configured after last deallocation. Skipping execution."
     exit 0
 }
 
@@ -49,6 +43,10 @@ New-CimInstance -ClassName Win32_PageFileSetting -Property @{
 
 Write-Output "Page file successfully created on D:\pagefile.sys"
 
-# **Force a Restart Only If The System Has Been Running Less Than 5 Minutes**
+# **Create marker file on TEMP disk (D:) to prevent re-running until next deallocation**
+New-Item -Path $MarkerFile -ItemType File -Force | Out-Null
+Write-Output "Marker file created at $MarkerFile to prevent re-running until next deallocation."
+
+# **Force a Restart ONLY ONCE per deallocation**
 Write-Output "Forcing reboot to apply pagefile settings..."
 Start-Process -FilePath "shutdown.exe" -ArgumentList "/r /t 5 /f" -NoNewWindow -Wait
