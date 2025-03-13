@@ -19,13 +19,16 @@ function Write-Log {
 
 Write-Log "========================= Script Started ========================="
 
-# **Check for Marker File - If Exists, Exit**
-if (Test-Path $MarkerFile) {
-    Write-Log "Marker file already exists. Pagefile is set. Skipping script execution. No reboot needed."
-    exit 0  # **EXITS SCRIPT IMMEDIATELY!**
+# **Check for Marker File - If Exists, Still Check If Deallocation Happened**
+$Uptime = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+$MinutesUp = (New-TimeSpan -Start $Uptime -End (Get-Date)).TotalMinutes
+
+if ((Test-Path $MarkerFile) -and ($MinutesUp -gt 5)) {
+    Write-Log "Marker file exists, and uptime is greater than 5 minutes. Skipping script execution."
+    exit 0  # **Ensures script stops here and does NOT continue.**
 }
 
-Write-Log "No marker file found. Running configuration."
+Write-Log "No marker file found OR system booted after deallocation. Running configuration."
 
 # **Ensure Temp Disk (D:) is available before proceeding**
 $TempDisk = Get-Disk | Where-Object { $_.PartitionStyle -eq 'RAW' -or $_.OperationalStatus -eq 'Offline' }
@@ -97,12 +100,12 @@ try {
     Write-Log "ERROR: Failed to create marker file: $_"
 }
 
-# **Final Check - ONLY Reboot if Marker File Was Just Created**
-if (!(Test-Path $MarkerFile)) {
-    Write-Log "ERROR: Marker file creation failed. Skipping reboot to avoid loop."
-} else {
-    Write-Log "Forcing system reboot to apply pagefile settings..."
+# **Ensure a Reboot Happens After a Deallocation Event**
+if ($MinutesUp -lt 5) {
+    Write-Log "System booted after a deallocation event. Forcing reboot to finalize pagefile setup..."
     Restart-Computer -Force
+} else {
+    Write-Log "System has been running longer than 5 minutes. No reboot required."
 }
 
 Write-Log "========================= Script Completed ========================="
