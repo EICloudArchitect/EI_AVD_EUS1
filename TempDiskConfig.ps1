@@ -1,5 +1,5 @@
 # Define paths
-$BlobURL = "https://storageaccount.blob.core.windows.net/scripts/Setup-TempDisk.ps1"
+$BlobURL = "https://github.com/EICloudArchitect/EI_AVD_EUS1/blob/2847ee9e6d7fedf6125f71cb1d88a6a10887f81d/TempDiskConfig.ps1"
 $LocalScriptPath = "C:\Scripts\Setup-TempDisk.ps1"
 
 # Ensure Scripts folder exists
@@ -8,7 +8,7 @@ if (!(Test-Path "C:\Scripts")) {
 }
 
 # Always download the latest version of the script from Blob Storage
-Write-Output "Downloading the latest version of Setup-TempDisk.ps1 from Blob..."
+Write-Output "Downloading the latest version of Setup-TempDisk.ps1 from GIT-hub Blob repository..."
 Invoke-WebRequest -Uri $BlobURL -OutFile $LocalScriptPath -UseBasicParsing
 Write-Output "Download complete."
 
@@ -19,7 +19,7 @@ $MinutesUp = (New-TimeSpan -Start $Uptime -End (Get-Date)).TotalMinutes
 Write-Output "System Uptime: $MinutesUp minutes"
 
 # If system uptime is greater than 10 minutes, skip everything
-if ($MinutesUp -gt 10) {
+if ($MinutesUp -gt 5) {
     Write-Output "VM was restarted recently, skipping pagefile setup."
     exit 0
 }
@@ -54,6 +54,6 @@ New-CimInstance -ClassName Win32_PageFileSetting -Property @{
 
 Write-Output "Page file successfully created on D:\pagefile.sys"
 
-# **Force a Restart Only If The System Has Been Running Less Than 10 Minutes**
+# **Force a Restart Only If The System Has Been Running Less Than 5 Minutes**
 Write-Output "Forcing reboot to apply pagefile settings..."
 Start-Process -FilePath "shutdown.exe" -ArgumentList "/r /t 5 /f" -NoNewWindow -Wait
