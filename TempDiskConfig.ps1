@@ -1,6 +1,6 @@
 # Define paths
 $LocalScriptPath = "C:\Scripts\Setup-TempDisk.ps1"
-$MarkerFile = "D:\PagefileConfigured.txt"   # Store marker file on TEMP disk (D:)
+$MarkerFile = "D:\PagefileConfigured.txt"
 
 # Ensure Scripts folder exists
 if (!(Test-Path "C:\Scripts")) {
@@ -13,15 +13,9 @@ if (Test-Path $MarkerFile) {
     exit 0
 }
 
-Write-Output "VM has been fully powered on after deallocation. Setting up temp disk and pagefile..."
+Write-Output "VM has been powered on after deallocation. Setting up temp disk and pagefile..."
 
-# **Ensure the Temp Disk (D:) is available before proceeding**
-if (!(Test-Path "D:\")) {
-    Write-Output "ERROR: Temp Disk (D:) not found! Pagefile setup aborted."
-    exit 1
-}
-
-# **Initialize Temp Disk if needed**
+# **Ensure Temp Disk (D:) is available before proceeding**
 $TempDisk = Get-Disk | Where-Object { $_.PartitionStyle -eq 'RAW' -or $_.OperationalStatus -eq 'Offline' }
 if ($TempDisk) {
     $TempDisk | Initialize-Disk -PartitionStyle MBR -PassThru | New-Partition -AssignDriveLetter -UseMaximumSize | Format-Volume -FileSystem NTFS -Confirm:$false
@@ -47,7 +41,7 @@ if ($ExistingDPageFile) {
     Remove-CimInstance -InputObject $ExistingDPageFile
 }
 
-# **Explicitly Create the New Pagefile on D:**
+# **Explicitly Create the Pagefile on D:**
 Write-Output "Creating new pagefile on D:\pagefile.sys..."
 New-CimInstance -ClassName Win32_PageFileSetting -Property @{
     Name = "D:\pagefile.sys"
@@ -55,7 +49,7 @@ New-CimInstance -ClassName Win32_PageFileSetting -Property @{
     MaximumSize = 65536
 } -Namespace "root\cimv2"
 
-# **Verify Pagefile Creation**
+# **Ensure Pagefile.sys File is Created**
 Start-Sleep -Seconds 5
 if (Test-Path "D:\pagefile.sys") {
     Write-Output "Pagefile successfully created on D:\pagefile.sys"
