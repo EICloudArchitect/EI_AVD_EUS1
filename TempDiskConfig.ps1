@@ -15,7 +15,13 @@ if (Test-Path $MarkerFile) {
 
 Write-Output "VM has been fully powered on after deallocation. Setting up temp disk and pagefile..."
 
-# Initialize Temp Disk if needed
+# **Ensure the Temp Disk (D:) is available before proceeding**
+if (!(Test-Path "D:\")) {
+    Write-Output "ERROR: Temp Disk (D:) not found! Pagefile setup aborted."
+    exit 1
+}
+
+# **Initialize Temp Disk if needed**
 $TempDisk = Get-Disk | Where-Object { $_.PartitionStyle -eq 'RAW' -or $_.OperationalStatus -eq 'Offline' }
 if ($TempDisk) {
     $TempDisk | Initialize-Disk -PartitionStyle MBR -PassThru | New-Partition -AssignDriveLetter -UseMaximumSize | Format-Volume -FileSystem NTFS -Confirm:$false
@@ -24,29 +30,44 @@ if ($TempDisk) {
     Write-Output "No uninitialized temporary disk found."
 }
 
-# Reset Page File (Disable automatic management)
+# **Ensure Windows is NOT auto-managing the Pagefile**
 Set-CimInstance -Query "SELECT * FROM Win32_ComputerSystem" -Property @{AutomaticManagedPagefile=$false}
 
-# Remove any existing Page File
-$C_Pagefile = Get-CimInstance -ClassName Win32_PageFileSetting | Where-Object { $_.Name -eq "C:\pagefile.sys" }
-if ($C_Pagefile) {
-    Remove-CimInstance -InputObject $C_Pagefile
-    Write-Output "Removed existing Page File on C: drive."
+# **Remove any existing Page File on C:**
+$ExistingCPageFile = Get-CimInstance -ClassName Win32_PageFileSetting | Where-Object { $_.Name -eq "C:\pagefile.sys" }
+if ($ExistingCPageFile) {
+    Write-Output "Removing existing pagefile at C:\pagefile.sys..."
+    Remove-CimInstance -InputObject $ExistingCPageFile
 }
 
-# Set new Pagefile on Temp Disk (D:)
+# **Remove any existing Page File on D:**
+$ExistingDPageFile = Get-CimInstance -ClassName Win32_PageFileSetting | Where-Object { $_.Name -eq "D:\pagefile.sys" }
+if ($ExistingDPageFile) {
+    Write-Output "Removing previous pagefile at D:\pagefile.sys..."
+    Remove-CimInstance -InputObject $ExistingDPageFile
+}
+
+# **Explicitly Create the New Pagefile on D:**
+Write-Output "Creating new pagefile on D:\pagefile.sys..."
 New-CimInstance -ClassName Win32_PageFileSetting -Property @{
-    Name="D:\pagefile.sys"
-    InitialSize=[UInt32]65536
-    MaximumSize=[UInt32]65536
+    Name = "D:\pagefile.sys"
+    InitialSize = 65536
+    MaximumSize = 65536
 } -Namespace "root\cimv2"
 
-Write-Output "Page file successfully created on D:\pagefile.sys"
+# **Verify Pagefile Creation**
+Start-Sleep -Seconds 5
+if (Test-Path "D:\pagefile.sys") {
+    Write-Output "Pagefile successfully created on D:\pagefile.sys"
+} else {
+    Write-Output "ERROR: Pagefile was NOT created on D:\!"
+    exit 1
+}
 
 # **Create marker file on TEMP disk (D:) to prevent re-running until next deallocation**
 New-Item -Path $MarkerFile -ItemType File -Force | Out-Null
 Write-Output "Marker file created at $MarkerFile to prevent re-running until next deallocation."
 
-# **Force a Restart ONLY ONCE per deallocation**
-Write-Output "Forcing reboot to apply pagefile settings..."
-Start-Process -FilePath "shutdown.exe" -ArgumentList "/r /t 5 /f" -NoNewWindow -Wait
+# **Force a Restart to Apply Pagefile**
+Write-Output "Forcing system reboot to apply pagefile settings..."
+shutdown.exe /r /t 5 /f
